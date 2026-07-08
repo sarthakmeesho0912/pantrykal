@@ -2,12 +2,13 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Plus, Flame, ChefHat, User, Home, Trash2, Check, ArrowLeft, Clock, ShoppingBag, AlertTriangle, Sparkles, LogOut } from "lucide-react";
 
 // ---------- Design tokens ----------
+// Meesho-inspired design tokens: magenta primary, pink accent, blush surfaces
 const T = {
-  bg: "#F5F8F2", ink: "#1E2B22", sub: "#5C6B60",
-  green: "#2F6B3F", greenSoft: "#E3EEE4",
-  turmeric: "#D99A1F", turmericSoft: "#F7ECD3",
-  over: "#C05038", overSoft: "#F7E2DC",
-  card: "#FFFFFF", line: "#E2E8DF",
+  bg: "#FBF4F9", ink: "#3B1E4E", sub: "#8A6E99",
+  green: "#9F2089", greenSoft: "#F8E3F3",
+  turmeric: "#F43397", turmericSoft: "#FDE4F0",
+  over: "#D93025", overSoft: "#FBE3E1",
+  card: "#FFFFFF", line: "#F0D9EA",
 };
 
 // ---------- Pantry model: quantities measured in servings ----------
@@ -31,16 +32,19 @@ const PANTRY_ITEMS = [
 ];
 
 // Simulated Zepto/Instamart order (v2 would parse real order emails/SMS)
-const DEMO_ORDER = {
-  source: "Zepto · order #ZP48291 · today 6:40 PM",
-  items: [
-    { id: "eggs", add: 12, label: "Eggs, 12 pack" },
-    { id: "milk", add: 6, label: "Milk 1L × 3" },
-    { id: "paneer", add: 4, label: "Paneer 400g" },
-    { id: "veggies", add: 6, label: "Veg combo pack" },
-    { id: "dosabatter", add: 8, label: "Idli-dosa batter 1kg" },
-    { id: "atta", add: 20, label: "Atta 5kg" },
-  ],
+const DEMO_SOURCES = {
+  zepto: { label: "Zepto", source: "Zepto · order #ZP48291", items: [
+    { id: "eggs", add: 12 }, { id: "milk", add: 6 }, { id: "paneer", add: 4 },
+    { id: "veggies", add: 6 }, { id: "dosabatter", add: 8 }, { id: "atta", add: 20 },
+  ]},
+  blinkit: { label: "Blinkit", source: "Blinkit · order #BL77102", items: [
+    { id: "chicken", add: 4 }, { id: "rice", add: 10 }, { id: "oats", add: 5 },
+    { id: "protein", add: 15 }, { id: "pasta", add: 2 }, { id: "potato", add: 8 },
+  ]},
+  bill: { label: "your bill (demo OCR)", source: "Bill photo · demo OCR", items: [
+    { id: "dal", add: 8 }, { id: "rajma", add: 4 }, { id: "chole", add: 4 },
+    { id: "curd", add: 4 }, { id: "milk", add: 4 },
+  ]},
 };
 
 // ---------- Food database: kcal/macros per serving, cook time (min), pantry consumed per serving ----------
@@ -116,7 +120,7 @@ function ThaliRing({ consumed, target }) {
           style={{ transition: "stroke-dasharray 600ms ease, stroke 300ms ease" }} />
       </svg>
       <div className="absolute flex flex-col items-center">
-        <span style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 42, fontWeight: 600, color: T.ink, lineHeight: 1 }}>
+        <span style={{ fontFamily: "Poppins, system-ui, sans-serif", fontSize: 42, fontWeight: 600, color: T.ink, lineHeight: 1 }}>
           {Math.abs(Math.round(remaining))}
         </span>
         <span className="text-xs mt-1" style={{ color: remaining < 0 ? T.over : T.sub }}>
@@ -179,9 +183,9 @@ function LoginScreen({ onLogin }) {
   const known = loadKnownUsers();
   return (
     <div className="min-h-screen w-full flex items-center justify-center px-4" style={{ background: T.bg }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap');`}</style>
       <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: T.card, border: `1px solid ${T.line}` }}>
-        <h1 className="text-center" style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 30, fontWeight: 600, color: T.green }}>PantryKal</h1>
+        <h1 className="text-center" style={{ fontFamily: "Poppins, system-ui, sans-serif", fontSize: 30, fontWeight: 600, color: T.green }}>PantryKal</h1>
         <p className="text-center text-xs mt-1 mb-5" style={{ color: T.sub }}>Eat smart from what you have</p>
         {known.length > 0 && (
           <div className="mb-4">
@@ -215,10 +219,22 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+function StepBanner({ step, total, title, sub }) {
+  return (
+    <div className="rounded-2xl p-4" style={{ background: T.greenSoft, border: `1px solid ${T.line}` }}>
+      <p className="text-xs font-semibold tracking-wide" style={{ color: T.green }}>STEP {step} OF {total}</p>
+      <p className="text-sm font-semibold mt-1" style={{ color: T.ink }}>{title}</p>
+      <p className="text-xs mt-0.5" style={{ color: T.sub }}>{sub}</p>
+    </div>
+  );
+}
+
 // ---------- App ----------
 export default function PantryKal() {
   const [user, setUser] = useState(null);
   const [userEmail, setUserEmail] = useState("");
+  const [onboarded, setOnboarded] = useState(false);
+  const [remindersOn, setRemindersOn] = useState(false);
   const [screen, setScreen] = useState("today");
   const [log, setLog] = useState([]);
   const [foods, setFoods] = useState(BASE_FOODS);
@@ -234,6 +250,28 @@ export default function PantryKal() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
+  const notifyUser = (title, body) => {
+    try {
+      if (remindersOn && typeof Notification !== "undefined" && Notification.permission === "granted") new Notification(title, { body });
+    } catch {}
+  };
+
+  const toggleReminders = async () => {
+    if (remindersOn) { setRemindersOn(false); showToast("Reminders off"); return; }
+    try {
+      if (typeof Notification === "undefined") { showToast("Notifications not supported on this browser"); return; }
+      const perm = await Notification.requestPermission();
+      if (perm === "granted") { setRemindersOn(true); showToast("Reminders on — we'll ping you on shortages"); }
+      else showToast("Permission denied — enable notifications in browser settings");
+    } catch { showToast("Couldn't enable notifications"); }
+  };
+
+  const finishOnboarding = () => {
+    setOnboarded(true);
+    setScreen("today");
+    showToast(`You're all set, ${user}! Log your first meal 🍽️`);
+  };
+
   // ---- Login / logout / persistence ----
   const handleLogin = (name, email) => {
     const saved = loadUserData(name);
@@ -242,7 +280,8 @@ export default function PantryKal() {
       if (saved.pantry) setPantry(saved.pantry);
       setFoods([...(saved.customFoods || []), ...BASE_FOODS]);
       setLog(saved.date === todayKey() ? (saved.log || []) : []);
-      setImportDone(!!saved.importDone);
+      setImportDone(saved.importDone || false);
+      setRemindersOn(!!saved.remindersOn);
       setUserEmail(saved.email || email || "");
     } else {
       // brand-new user: register + optionally log to Google Sheet
@@ -255,7 +294,9 @@ export default function PantryKal() {
     }
     try { localStorage.setItem("pk-current", name); } catch {}
     setUser(name);
-    setScreen("today");
+    const done = !!(saved && saved.onboarded !== false);
+    setOnboarded(done);
+    setScreen(done ? "today" : "ob-profile");
   };
 
   const handleLogout = () => {
@@ -266,6 +307,8 @@ export default function PantryKal() {
     setFoods(BASE_FOODS);
     setProfile({ mode: "manual", target: 3000, sex: "male", age: "", weight: "", height: "", activity: 1.55 });
     setImportDone(false);
+    setOnboarded(false);
+    setRemindersOn(false);
   };
 
   // Auto-login if this device already has a session
@@ -284,10 +327,10 @@ export default function PantryKal() {
       localStorage.setItem(userStorageKey(user), JSON.stringify({
         profile, pantry, log,
         customFoods: foods.filter((f) => f.custom),
-        importDone, email: userEmail, date: todayKey(),
+        importDone, onboarded, remindersOn, email: userEmail, date: todayKey(),
       }));
     } catch {}
-  }, [user, profile, pantry, log, foods, importDone, userEmail]);
+  }, [user, profile, pantry, log, foods, importDone, onboarded, remindersOn, userEmail]);
 
   const target = profile.mode === "auto" ? (calcTarget(profile) || 3000) : Number(profile.target) || 3000;
   const totals = useMemo(() => log.reduce((a, x) => ({
@@ -331,8 +374,13 @@ export default function PantryKal() {
         });
         const nowLow = f.pantry.filter((k) => next[k] && next[k].qty > 0 && next[k].qty <= Math.max(2, next[k].cap * 0.2));
         const nowOut = f.pantry.filter((k) => next[k] && next[k].qty <= 0);
-        if (nowOut.length) showToast(`⚠️ ${nowOut.map((k) => next[k].name).join(", ")} finished — added to shopping list`);
-        else if (nowLow.length) showToast(`Running low: ${nowLow.map((k) => next[k].name).join(", ")}`);
+        if (nowOut.length) {
+          const m = `${nowOut.map((k) => next[k].name).join(", ")} finished — added to shopping list`;
+          showToast("⚠️ " + m); notifyUser("PantryKal reminder", m);
+        } else if (nowLow.length) {
+          const m = `Running low: ${nowLow.map((k) => next[k].name).join(", ")}`;
+          showToast(m); notifyUser("PantryKal reminder", m);
+        }
         return next;
       });
     }
@@ -357,16 +405,25 @@ export default function PantryKal() {
     setScreen("today");
   };
 
-  const importOrder = () => {
+  const importOrder = (key) => {
+    const srcOrder = DEMO_SOURCES[key];
+    if (!srcOrder) return;
     setPantry((p) => {
       const next = { ...p };
-      DEMO_ORDER.items.forEach(({ id, add }) => {
+      srcOrder.items.forEach(({ id, add }) => {
         if (next[id]) next[id] = { ...next[id], qty: next[id].qty + add, cap: Math.max(next[id].cap, next[id].qty + add) };
       });
       return next;
     });
-    setImportDone(true);
-    showToast(`Imported ${DEMO_ORDER.items.length} items from ${DEMO_ORDER.source.split("·")[0].trim()}`);
+    setImportDone(key);
+    showToast(`Added ${srcOrder.items.length} items from ${srcOrder.label}`);
+  };
+
+  const handleBillUpload = (e) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    showToast("Reading your bill…");
+    setTimeout(() => importOrder("bill"), 1200);
+    e.target.value = "";
   };
 
   const g = guidance();
@@ -539,17 +596,21 @@ export default function PantryKal() {
         <div className="flex items-start gap-2">
           <ShoppingBag size={18} style={{ color: T.green, marginTop: 2, flexShrink: 0 }} />
           <div className="flex-1">
-            <p className="text-sm font-semibold" style={{ color: T.ink }}>Import from your grocery app</p>
+            <p className="text-sm font-semibold" style={{ color: T.ink }}>Fill your pantry, your way</p>
             <p className="text-xs mt-0.5" style={{ color: T.sub }}>
-              {importDone
-                ? `Last import: ${DEMO_ORDER.source}`
-                : "Pull your latest Zepto / Instamart / Blinkit order straight into the pantry. (Demo — v2 parses real order emails.)"}
+              {importDone && DEMO_SOURCES[importDone]
+                ? `Last import: ${DEMO_SOURCES[importDone].source}`
+                : "Import a grocery order, snap your bill, or adjust the list below by hand."}
             </p>
-            {!importDone && (
-              <button onClick={importOrder} className="mt-2 text-xs px-3 py-1.5 rounded-full" style={{ background: T.green, color: "#fff" }}>
-                Import latest Zepto order (demo)
-              </button>
-            )}
+            <div className="flex flex-wrap gap-2 mt-2">
+              <button onClick={() => importOrder("zepto")} className="text-xs px-3 py-1.5 rounded-full" style={{ background: T.green, color: "#fff" }}>Import Zepto order</button>
+              <button onClick={() => importOrder("blinkit")} className="text-xs px-3 py-1.5 rounded-full" style={{ background: T.turmeric, color: "#fff" }}>Import Blinkit order</button>
+              <label className="text-xs px-3 py-1.5 rounded-full cursor-pointer" style={{ border: `1px solid ${T.green}`, color: T.green }}>
+                Upload bill photo
+                <input type="file" accept="image/*" className="hidden" onChange={handleBillUpload} />
+              </label>
+            </div>
+            <p className="text-xs mt-2" style={{ color: T.sub }}>(Demo imports — production parses real order emails & bill OCR)</p>
           </div>
         </div>
       </Card>
@@ -651,6 +712,18 @@ export default function PantryKal() {
       </Card>
       <Card>
         <div className="flex items-center justify-between">
+          <div className="flex-1 pr-3">
+            <p className="text-sm font-semibold" style={{ color: T.ink }}>Shortage reminders</p>
+            <p className="text-xs" style={{ color: T.sub }}>Get notified when a pantry item runs low or finishes.</p>
+          </div>
+          <button onClick={toggleReminders} className="text-xs px-4 py-2 rounded-full flex-shrink-0"
+            style={remindersOn ? { background: T.green, color: "#fff" } : { border: `1px solid ${T.green}`, color: T.green }}>
+            {remindersOn ? "On" : "Enable"}
+          </button>
+        </div>
+      </Card>
+      <Card>
+        <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold" style={{ color: T.ink }}>Signed in as {user}</p>
             <p className="text-xs" style={{ color: T.sub }}>{userEmail || "Data saved on this device"}</p>
@@ -677,16 +750,34 @@ export default function PantryKal() {
 
   return (
     <div className="min-h-screen w-full flex justify-center" style={{ background: T.bg }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap');`}</style>
       <div className="w-full max-w-md flex flex-col min-h-screen">
         <header className="px-4 pt-5 pb-2 flex items-baseline justify-between">
-          <h1 style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 22, fontWeight: 600, color: T.green }}>PantryKal</h1>
+          <h1 style={{ fontFamily: "Poppins, system-ui, sans-serif", fontSize: 22, fontWeight: 600, color: T.green }}>PantryKal</h1>
           <span className="text-xs" style={{ color: T.sub }}>
             Hi {user.split(" ")[0]} · {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
           </span>
         </header>
 
         <main className="flex-1 px-4 pb-28 pt-1">
+          {screen === "ob-profile" && (
+            <div className="flex flex-col gap-4">
+              <StepBanner step={1} total={2} title="Set your daily calorie target" sub="Type it in yourself, or let us calculate it from your stats." />
+              <Profile />
+              <button onClick={() => setScreen("ob-pantry")} className="rounded-xl py-3 text-sm font-semibold" style={{ background: T.green, color: "#fff" }}>
+                Continue → Stock my pantry
+              </button>
+            </div>
+          )}
+          {screen === "ob-pantry" && (
+            <div className="flex flex-col gap-4">
+              <StepBanner step={2} total={2} title="Stock your pantry" sub="Import a Zepto/Blinkit order, upload a bill photo, or tweak the pre-filled list below." />
+              <Pantry />
+              <button onClick={finishOnboarding} className="rounded-xl py-3 text-sm font-semibold" style={{ background: T.green, color: "#fff" }}>
+                Finish setup → Start tracking
+              </button>
+            </div>
+          )}
           {screen === "today" && <Today />}
           {screen === "add" && <Add />}
           {screen === "pantry" && <Pantry />}
@@ -700,7 +791,7 @@ export default function PantryKal() {
           </div>
         )}
 
-        {screen !== "add" && (
+        {onboarded && screen !== "add" && (
           <button onClick={() => { setAddMeal(mealByHour()); setScreen("add"); }}
             aria-label="Log food"
             className="fixed bottom-20 rounded-full w-14 h-14 flex items-center justify-center shadow-lg"
@@ -709,6 +800,7 @@ export default function PantryKal() {
           </button>
         )}
 
+        {onboarded && (
         <nav className="fixed bottom-0 w-full max-w-md flex justify-around py-2"
           style={{ background: T.card, borderTop: `1px solid ${T.line}` }}>
           {tabs.map((t) => (
@@ -719,6 +811,7 @@ export default function PantryKal() {
             </button>
           ))}
         </nav>
+        )}
       </div>
     </div>
   );
