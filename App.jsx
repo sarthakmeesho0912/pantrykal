@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from "react";
-import { Plus, Flame, ChefHat, User, Home, Trash2, Check, ArrowLeft, Clock, ShoppingBag, AlertTriangle, Sparkles } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { Plus, Flame, ChefHat, User, Home, Trash2, Check, ArrowLeft, Clock, ShoppingBag, AlertTriangle, Sparkles, LogOut } from "lucide-react";
 
 // ---------- Design tokens ----------
 const T = {
@@ -142,8 +142,83 @@ function MacroBar({ label, val, goal, color }) {
   );
 }
 
+// ---------- User accounts (passwordless, demo-grade) ----------
+// OPTIONAL: paste your Google Apps Script web app URL below to log signups
+// (name, email, timestamp) to a Google Sheet. Leave "" to skip.
+const SHEET_WEBHOOK_URL = "";
+
+const todayKey = () => new Date().toISOString().slice(0, 10);
+const userStorageKey = (name) => "pk-user-" + name.trim().toLowerCase();
+
+const loadUserData = (name) => {
+  try {
+    const raw = localStorage.getItem(userStorageKey(name));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+
+const loadKnownUsers = () => {
+  try { return JSON.parse(localStorage.getItem("pk-users") || "[]"); }
+  catch { return []; }
+};
+
+const logSignupToSheet = (name, email) => {
+  if (!SHEET_WEBHOOK_URL) return;
+  try {
+    fetch(SHEET_WEBHOOK_URL, {
+      method: "POST", mode: "no-cors",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ name, email: email || "", ts: new Date().toISOString() }),
+    });
+  } catch { /* non-blocking */ }
+};
+
+function LoginScreen({ onLogin }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const known = loadKnownUsers();
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center px-4" style={{ background: T.bg }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&display=swap');`}</style>
+      <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: T.card, border: `1px solid ${T.line}` }}>
+        <h1 className="text-center" style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 30, fontWeight: 600, color: T.green }}>PantryKal</h1>
+        <p className="text-center text-xs mt-1 mb-5" style={{ color: T.sub }}>Eat smart from what you have</p>
+        {known.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs mb-2" style={{ color: T.sub }}>Welcome back — tap your name:</p>
+            <div className="flex flex-wrap gap-2">
+              {known.map((u) => (
+                <button key={u} onClick={() => onLogin(u, "")} className="text-sm px-3 py-1.5 rounded-full"
+                  style={{ background: T.greenSoft, color: T.green, border: `1px solid ${T.line}` }}>
+                  {u}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs my-3 text-center" style={{ color: T.sub }}>— or —</p>
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name"
+            className="rounded-lg px-3 py-2.5 text-sm w-full" style={{ border: `1px solid ${T.line}`, background: T.bg, color: T.ink }} />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" type="email"
+            className="rounded-lg px-3 py-2.5 text-sm w-full" style={{ border: `1px solid ${T.line}`, background: T.bg, color: T.ink }} />
+          <button onClick={() => name.trim() && onLogin(name.trim(), email.trim())}
+            className="rounded-lg py-2.5 text-sm font-semibold mt-1" style={{ background: T.green, color: "#fff", opacity: name.trim() ? 1 : 0.5 }}>
+            Continue
+          </button>
+        </div>
+        <p className="text-xs text-center mt-4" style={{ color: T.sub }}>
+          No password needed. Your food log and pantry save on this device under your name.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ---------- App ----------
 export default function PantryKal() {
+  const [user, setUser] = useState(null);
+  const [userEmail, setUserEmail] = useState("");
   const [screen, setScreen] = useState("today");
   const [log, setLog] = useState([]);
   const [foods, setFoods] = useState(BASE_FOODS);
@@ -158,6 +233,61 @@ export default function PantryKal() {
   const [toast, setToast] = useState(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+
+  // ---- Login / logout / persistence ----
+  const handleLogin = (name, email) => {
+    const saved = loadUserData(name);
+    if (saved) {
+      if (saved.profile) setProfile(saved.profile);
+      if (saved.pantry) setPantry(saved.pantry);
+      setFoods([...(saved.customFoods || []), ...BASE_FOODS]);
+      setLog(saved.date === todayKey() ? (saved.log || []) : []);
+      setImportDone(!!saved.importDone);
+      setUserEmail(saved.email || email || "");
+    } else {
+      // brand-new user: register + optionally log to Google Sheet
+      const known = loadKnownUsers();
+      if (!known.includes(name)) {
+        try { localStorage.setItem("pk-users", JSON.stringify([...known, name])); } catch {}
+      }
+      setUserEmail(email || "");
+      logSignupToSheet(name, email);
+    }
+    try { localStorage.setItem("pk-current", name); } catch {}
+    setUser(name);
+    setScreen("today");
+  };
+
+  const handleLogout = () => {
+    try { localStorage.removeItem("pk-current"); } catch {}
+    setUser(null);
+    setLog([]);
+    setPantry(Object.fromEntries(PANTRY_ITEMS.map((i) => [i.id, { ...i }])));
+    setFoods(BASE_FOODS);
+    setProfile({ mode: "manual", target: 3000, sex: "male", age: "", weight: "", height: "", activity: 1.55 });
+    setImportDone(false);
+  };
+
+  // Auto-login if this device already has a session
+  useEffect(() => {
+    try {
+      const current = localStorage.getItem("pk-current");
+      if (current) handleLogin(current, "");
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save everything whenever it changes
+  useEffect(() => {
+    if (!user) return;
+    try {
+      localStorage.setItem(userStorageKey(user), JSON.stringify({
+        profile, pantry, log,
+        customFoods: foods.filter((f) => f.custom),
+        importDone, email: userEmail, date: todayKey(),
+      }));
+    } catch {}
+  }, [user, profile, pantry, log, foods, importDone, userEmail]);
 
   const target = profile.mode === "auto" ? (calcTarget(profile) || 3000) : Number(profile.target) || 3000;
   const totals = useMemo(() => log.reduce((a, x) => ({
@@ -519,8 +649,20 @@ export default function PantryKal() {
           {profile.weight ? `1.6 g per kg bodyweight → ${proteinGoal} g/day` : `Default ${proteinGoal} g/day — add your weight for a personalised goal (1.6 g/kg).`}
         </p>
       </Card>
+      <Card>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold" style={{ color: T.ink }}>Signed in as {user}</p>
+            <p className="text-xs" style={{ color: T.sub }}>{userEmail || "Data saved on this device"}</p>
+          </div>
+          <button onClick={handleLogout} className="flex items-center gap-1 text-xs px-3 py-2 rounded-lg"
+            style={{ color: T.over, border: `1px solid ${T.line}` }}>
+            <LogOut size={14} /> Log out
+          </button>
+        </div>
+      </Card>
       <p className="text-xs text-center px-4" style={{ color: T.sub }}>
-        Estimates are approximate and for general awareness, not medical advice. Data resets on refresh in this prototype.
+        Estimates are approximate and for general awareness, not medical advice.
       </p>
     </div>
   );
@@ -531,6 +673,8 @@ export default function PantryKal() {
     { id: "profile", label: "Profile", icon: User },
   ];
 
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+
   return (
     <div className="min-h-screen w-full flex justify-center" style={{ background: T.bg }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&display=swap');`}</style>
@@ -538,7 +682,7 @@ export default function PantryKal() {
         <header className="px-4 pt-5 pb-2 flex items-baseline justify-between">
           <h1 style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 22, fontWeight: 600, color: T.green }}>PantryKal</h1>
           <span className="text-xs" style={{ color: T.sub }}>
-            {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
+            Hi {user.split(" ")[0]} · {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
           </span>
         </header>
 
